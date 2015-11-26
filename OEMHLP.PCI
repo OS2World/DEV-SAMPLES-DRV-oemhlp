@@ -1,0 +1,385 @@
+09/23/94                                                               5:14:27
+
+This is an Interim Documentation on the OEMHLP support for PCI and is subject
+to changes.
+
+ The following is a summary of Category 80h Function 0Bh OEMHLP IOCtl Commands:
+
+Function  Description
+0Bh       Access PCI BIOS Information
+0Bh       Query PCI BIOS Information - Subfunction 00h
+0Bh       Find PCI Device - Subfunction 01h
+0Bh       Find PCI Class Code - Subfunction 02h
+0Bh       Read PCI Configuration Space - Subfunction 03h
+0Bh       Write PCI Configuration Space - Subfunction 04h
+
+ Category:
+    IOCTL_OEMHLP (80h)
+  Function:
+    OEMHLP_PCI (0Bh)
+  Description:
+    Access PCI BIOS
+
+ Remarks:
+ This function routes select function calls to the BIOS on
+ Peripheral Component Interconnect (PCI) hardware that conforms
+ to the PCI BIOS 2.0 specification.
+
+ The Access PCI BIOS function supports five subfunctions. The
+ subfunctions are as follows:
+
+Subfunction Number  Description         Corresponding PCI
+                                        BIOS Call
+0                   Query PCI BIOS      Int 1A AH=B1
+                    Information         AL=01
+1                   Find PCI Device     Int 1A AH=B1
+                                        AL=02
+2                   Find PCI Class Code Int 1A AH=B1
+                                        AL=03
+3                   Read PCI            Int 1A AH=B1
+                    Configuration Space AL=08, 09, or 0A
+4                   Write PCI           Int 1A AH=B1
+                    Configuration Space AL=0B, 0C, or 0D
+
+ The Data Packets for each subfunction each contain a byte
+ field for Return Code.  This field contains the return code
+ returned from their respective PCI BIOS call.  These return
+ codes are described as follows:
+
+  Return Code    Description
+  00h            Successful
+  81h            Function Not Supported
+  83h            Bad Vendor ID
+  86h            Device Not Found
+  87h            Bad Register Number
+  Further Reference can be found in the PCI BIOS Specification
+  Revision 2.0.
+***************************************************************************
+
+ Category:
+    IOCTL_OEMHLP (80h)
+  Function:
+    OEMHLP_PCI (0Bh)
+  Description:
+    Query PCI BIOS
+    Information -
+    Subfunction 00h
+
+Description
+ This function returns information specific to the PCI BIOS
+ installed on a machine, such as revision number and levels of
+ support.
+
+Parameter Packet Format
+Field                  Length
+Subfunction Number     BYTE
+
+Data Packet Format
+Field                  Length
+Return Code            BYTE
+Hardware Mechanism     BYTE
+Major Version          BYTE
+Minor Version          BYTE
+Last Bus               BYTE
+
+Remarks
+ None.
+*******************************************************************************
+
+ Category:
+    IOCTL_OEMHLP (80h)
+  Function:
+    OEMHLP_PCI (0Bh)
+  Description:
+    Find PCI Device -
+    Subfunction 01h
+
+ This function returns information on a device specified by
+ vendor and device ID numbers.
+
+Parameter Packet Format
+Field                  Length
+Subfunction Number     BYTE
+Device ID              WORD
+Vendor ID              WORD
+Index                  BYTE
+
+Data Packet Format
+Field              Length
+Return Code        BYTE
+Bus Number         BYTE
+DevFunc Number     BYTE
+
+ Remarks:
+ To find identical PCI devices, successive calls must be made
+ while incrementing the Index until a return code of 86h -
+ Device Not Found is returned.
+ ************************************************************************
+
+ Category:
+    IOCTL_OEMHLP (80h)
+  Function:
+    OEMHLP_PCI (0Bh)
+  Description:
+    Find PCI Class Code -
+    Subfunction 02h
+
+ Description
+ This function returns information on a device specified by Class
+ Code.
+
+Parameter Packet Format
+Field                  Length
+Subfunction Number     BYTE
+Class Code             DWORD
+Index                  BYTE
+
+Data Packet Format
+Field              Length
+Return Code        BYTE
+Bus Number         BYTE
+DevFunc Number     BYTE
+
+Remarks
+To find identical PCI devices, successive calls must be made
+ while incrementing the Index until a return code of 86h -
+ Device Not Found is returned.
+**************************************************************************
+
+ Category:
+    IOCTL_OEMHLP (80h)
+  Function:
+    OEMHLP_PCI (0Bh)
+  Description:
+    Read PCI Configuration
+    Space - Subfunction
+    03h
+
+Description
+ This function allows reading of a PCI Configuration register on a
+ specified device.
+
+Parameter Packet Format
+Field                      Length
+Subfunction Number         BYTE
+Bus Number                 BYTE
+DevFuncNum                 BYTE
+Configuration Register     BYTE
+Size                       BYTE
+
+Data Packet Format
+Field           Length
+Return Code     BYTE
+Data            DWORD
+
+Remarks
+ Unused upper bytes of Data field will be zero-filled. Refer to
+ the PCI Specification for more information on configuration
+ registers.
+**************************************************************************
+
+ Category:
+    IOCTL_OEMHLP (80h)
+  Function:
+    OEMHLP_PCI (0Bh)
+  Description:
+    Write PCI Configuration
+    Space - Subfunction
+    04h
+
+ Description
+ This function allows writing of a PCI Configuration register on a
+ specified device.
+
+Parameter Packet Format
+Field                      Length
+Subfunction Number         BYTE
+Bus Number                 BYTE
+DevFuncNum                 BYTE
+Configuration Register     BYTE
+Size                       BYTE
+Data                       DWORD
+
+Data Packet Format
+ None.
+
+Remarks
+ Unused upper bytes of the Data file will be ignored.  Refer to
+ the PCI Specification for more information on configuration
+ registers.
+*********************************************************************
+
+The following code allows both apps and DDs to
+make PCI BIOS calls (provided you have a os2ldr with this support)
+The important pieces are doing an DevHlp_AttachDD to get the IDC
+entry point, dummy up a request packet, and then calling the
+e.p. with es:bx pointing to the request packet.
+
+/*-------------------------------------------------*/
+/*- How to call OEMHLP for PCI IOCtls from DD     -*/
+/*-                                               -*/
+/*-------------------------------------------------*/
+
+#define INCL_NOBASEAPI
+#define INCL_NOPMAPI
+#define INCL_ERROR_H
+
+#include "os2.h"
+
+#include <dhcalls.h>   /* DevHelp calls  */
+#include <strat2.h>    /* Requst Packets */
+#include <reqpkt.h>    /* Requst Packets */
+
+BOOL  FindDevice(USHORT, USHORT, USHORT);
+
+#define PCI_FUNC 0x0b
+#define PCI_GET_BIOS_INFO   0
+#define PCI_FIND_DEVICE     1
+#define PCI_FIND_CLASS_CODE 2
+#define PCI_READ_CONFIG     3
+#define PCI_WRITE_CONFIG    4
+
+#define MY_DEVICE_ID   0x1010
+#define MY_VENDOR_ID   0x8086
+
+#define PCI_SUCCESSFUL 0x00
+
+typedef struct _PCI_PARM {
+   UCHAR PCISubFunc;
+   union {
+      struct {
+         USHORT DeviceID;
+         USHORT VendorID;
+         UCHAR  Index;
+      }Parm_Find_Dev;
+      struct {
+         ULONG  ClassCode;
+         UCHAR  Index;
+      }Parm_Find_ClassCode;
+      struct {
+         UCHAR  BusNum;
+         UCHAR  DevFunc;
+         UCHAR  ConfigReg;
+         UCHAR  Size;
+      }Parm_Read_Config;
+      struct {
+         UCHAR  BusNum;
+         UCHAR  DevFunc;
+         UCHAR  ConfigReg;
+         UCHAR  Size;
+         ULONG  Data;
+      }Parm_Write_Config;
+   };
+} PCI_PARM;
+
+typedef struct _PCI_DATA {
+   UCHAR bReturn;
+   union {
+      struct {
+         UCHAR HWMech;
+         UCHAR MajorVer;
+         UCHAR MinorVer;
+         UCHAR LastBus;
+      } Data_Bios_Info;
+      struct {
+         UCHAR  BusNum;
+         UCHAR  DevFunc;
+      }Data_Find_Dev;
+      struct {
+         ULONG  Data;
+      }Data_Read_Config;
+   };
+} PCI_DATA;
+
+/*-------------- Now in reqpkt.h -----------------------*/
+
+//   typedef struct _IDCTABLE {
+//   USHORT        Reserved[3];
+//   VOID          (FAR *ProtIDCEntry)(VOID);
+//   USHORT        ProtIDC_DS;
+//   } IDCTABLE;
+
+//   typedef IDCTABLE NEAR *NPIDCTABLE;
+/*-----------------------------------------------------*/
+
+IDCTABLE   DDTable;               /* Global */
+VOID (FAR *pOEMHLPEntry)(VOID);  /* Global */
+USHORT OemhlpDS;                 /* Global */
+
+/*----------------------------------------------------*/
+/*-  Function: NumOfMyPCIDevices                     -*/
+/*-     AttachDD to OEMHLP and make PCI IOCtls to    -*/
+/*-     find my device                               -*/
+/*----------------------------------------------------*/
+
+USHORT NumOfMyPCIDevices(USHORT DeviceID, USHORT VendorID){
+
+USHORT    DeviceCount=0;
+
+   if (DevHelp_AttachDD("OEMHLP$", (NPBYTE)&DDTable))
+      return(0);    /* Couldn't find OEMHLP's IDC */
+
+   if ((DDTable.ProtIDCEntry == NULL) || (DDTable.ProtIDC_DS == 0))
+      return(0);    /* Bad Entry Point or Data Segment */
+
+   pOEMHLPEntry = DDTable.ProtIDCEntry;
+   OemhlpDS = DDTable.ProtIDC_DS;
+
+   /* Index through till device not found */
+   while( FindDevice(DeviceID,VendorID,DeviceCount) == TRUE)
+      DeviceCount++;
+
+   return(DeviceCount);
+}
+
+BOOL  FindDevice(USHORT DeviceID, USHORT VendorID, USHORT Index){
+
+PCI_PARM  PCIParmPkt;
+PCI_DATA  PCIDataPkt;
+RP_GENIOCTL IOCtlRP;    /* From reqpkt.h */
+PRPH pRPH = (PRPH)&IOCtlRP;
+
+   /* Setup Parm Packet */
+   PCIParmPkt.PCISubFunc = PCI_FIND_DEVICE;
+   PCIParmPkt.Parm_Find_Dev.DeviceID = MY_DEVICE_ID;
+   PCIParmPkt.Parm_Find_Dev.VendorID = MY_VENDOR_ID;
+   PCIParmPkt.Parm_Find_Dev.Index = Index;
+
+   /* Setup IOCTL Request Packet */
+   IOCtlRP.Category = 0x80;
+   IOCtlRP.Function = PCI_FUNC;  /* 0x0b */
+   IOCtlRP.ParmPacket = (PUCHAR)&PCIParmPkt;
+   IOCtlRP.DataPacket = (PUCHAR)&PCIDataPkt;
+   IOCtlRP.rph.Len = sizeof(IOCtlRP);
+   IOCtlRP.rph.Unit = 0;
+   IOCtlRP.rph.Cmd  = 0x10;      /* Generic IOCtl */
+   IOCtlRP.rph.Status = 0;
+
+   _asm {push es
+         push bx
+         push ds
+         mov  bx, word ptr pRPH[0]
+         mov  es, word ptr pRPH[2]
+         mov  ds, OemhlpDS
+         }
+
+   (*pOEMHLPEntry)();
+
+   _asm {pop ds
+         pop bx
+         pop es
+         }
+
+   if (IOCtlRP.rph.Status & STERR)
+      return(FALSE);
+
+   if (PCIDataPkt.bReturn != PCI_SUCCESSFUL)
+      return(FALSE);
+
+   /*  PCIDataPacket.Data_Find_Dev.BusNum      */
+   /*  and PCIDataPacket.Data_Find_Dev.DevFunc contain the PCI Bus location */
+
+   return(TRUE);
+
+}
+
